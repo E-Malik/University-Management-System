@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>University Management System</title>
+<style>
+  :root { --bg:#f4f6fb; --card:#fff; --ink:#1f2937; --muted:#6b7280; --brand:#2f4bb8; --line:#e5e7eb; --bad:#b91c1c; --good:#15803d; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Segoe UI, Arial, sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--brand); color:#fff; padding:16px 24px; }
+  header h1 { margin:0; font-size:20px; }
+  nav { display:flex; gap:4px; padding:12px 24px 0; flex-wrap:wrap; }
+  nav button { border:0; background:#dfe4f5; padding:10px 18px; border-radius:8px 8px 0 0; cursor:pointer; font-size:14px; }
+  nav button.active { background:var(--card); font-weight:600; color:var(--brand); }
+  main { background:var(--card); margin:0 24px 24px; padding:20px; border-radius:0 8px 8px 8px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:14px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, select { padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:14px; }
+  button.act { background:var(--brand); color:#fff; border:0; padding:8px 14px; border-radius:6px; cursor:pointer; }
+  button.del { background:none; border:0; color:var(--bad); cursor:pointer; }
+  #msg { margin:12px 24px 0; padding:10px 14px; border-radius:6px; display:none; font-size:14px; }
+  #msg.ok { display:block; background:#dcfce7; color:var(--good); }
+  #msg.err { display:block; background:#fee2e2; color:var(--bad); }
+  .stat { font-size:18px; margin-top:14px; }
+</style>
+</head>
+<body>
+<header><h1>University Management System</h1></header>
+<nav id="tabs">
+  <button data-tab="students" class="active">Students</button>
+  <button data-tab="courses">Courses</button>
+  <button data-tab="enroll">Enrollment</button>
+  <button data-tab="transcript">Transcript</button>
+</nav>
+<div id="msg"></div>
+<main id="view"></main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let tab = 'students';
+
+async function api(method, url, body) {
+  const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  let data = null; try { data = await res.json(); } catch {}
+  if (!res.ok) throw new Error(data?.message || 'Request failed');
+  return data;
+}
+function flash(text, ok = true) {
+  const m = $('#msg'); m.textContent = text; m.className = ok ? 'ok' : 'err';
+  setTimeout(() => m.className = '', 4000);
+}
+async function run(fn, okText) {
+  try { const r = await fn(); flash(r?.message || okText, true); await render(); }
+  catch (e) { flash(e.message, false); }
+}
+
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); tab = b.dataset.tab; render();
+});
+
+async function render() {
+  const v = $('#view');
+  if (tab === 'students') {
+    const list = await api('GET', '/api/students');
+    v.innerHTML = `<div class="row">
+      <input id="sn" placeholder="Name"><input id="se" placeholder="Email"><input id="sp" placeholder="Program (e.g. BSCS)">
+      <button class="act" id="addS">Add Student</button></div>
+      <table><tr><th>ID</th><th>Name</th><th>Email</th><th>Program</th><th></th></tr>
+      ${list.map(s => `<tr><td>${s.id}</td><td>${esc(s.name)}</td><td>${esc(s.email)}</td><td>${esc(s.program)}</td>
+        <td><button class="del" onclick="delStudent(${s.id})">Delete</button></td></tr>`).join('')}</table>`;
+    $('#addS').onclick = () => run(() => api('POST', '/api/students', { name: $('#sn').value, email: $('#se').value, program: $('#sp').value }));
+  }
+  else if (tab === 'courses') {
+    const [list, teachers] = await Promise.all([api('GET', '/api/courses'), api('GET', '/api/teachers')]);
+    v.innerHTML = `<div class="row">
+      <input id="cc" placeholder="Code" size="8"><input id="ct" placeholder="Title">
+      <input id="cr" type="number" placeholder="Credits" min="1" max="6" style="width:90px">
+      <input id="cp" type="number" placeholder="Capacity" min="1" style="width:100px">
+      <select id="cteacher">${teachers.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select>
+      <button class="act" id="addC">Add Course</button></div>
+      <table><tr><th>Code</th><th>Title</th><th>Credits</th><th>Teacher</th><th>Seats</th><th></th></tr>
+      ${list.map(c => `<tr><td>${esc(c.code)}</td><td>${esc(c.title)}</td><td>${c.credits}</td><td>${esc(c.teacherName)}</td>
+        <td>${c.enrolled}/${c.capacity}</td><td><button class="del" onclick="delCourse(${c.id})">Delete</button></td></tr>`).join('')}</table>`;
+    $('#addC').onclick = () => run(() => api('POST', '/api/courses', {
+      code: $('#cc').value, title: $('#ct').value, credits: +$('#cr').value, capacity: +$('#cp').value, teacherId: +$('#cteacher').value }));
+  }
+  else if (tab === 'enroll') {
+    const [students, courses, enr] = await Promise.all([api('GET', '/api/students'), api('GET', '/api/courses'), api('GET', '/api/enrollments')]);
+    v.innerHTML = `<div class="row">
+      <select id="es">${students.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+      <select id="ec">${courses.map(c => `<option value="${c.id}">${esc(c.code)} - ${esc(c.title)}</option>`).join('')}</select>
+      <button class="act" id="enrollBtn">Enroll</button></div>
+      <table><tr><th>Student</th><th>Course</th><th>Credits</th><th>Grade</th><th></th></tr>
+      ${enr.map(e => `<tr><td>${esc(e.studentName)}</td><td>${esc(e.courseCode)} - ${esc(e.courseTitle)}</td><td>${e.credits}</td>
+        <td><select onchange="setGrade(${e.id}, this.value)">
+          <option value="">--</option>${['A','B','C','D','F'].map(g => `<option ${e.grade === g ? 'selected' : ''}>${g}</option>`).join('')}</select></td>
+        <td><button class="del" onclick="drop(${e.id})">Drop</button></td></tr>`).join('')}</table>`;
+    $('#enrollBtn').onclick = () => run(() => api('POST', '/api/enrollments', { studentId: +$('#es').value, courseId: +$('#ec').value }));
+  }
+  else if (tab === 'transcript') {
+    const students = await api('GET', '/api/students');
+    v.innerHTML = `<div class="row"><select id="ts">${students.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+      <button class="act" id="showT">Show Transcript</button></div><div id="tout"></div>`;
+    $('#showT').onclick = async () => {
+      try {
+        const t = await api('GET', `/api/students/${$('#ts').value}/transcript`);
+        $('#tout').innerHTML = `<table><tr><th>Course</th><th>Credits</th><th>Grade</th><th>Points</th></tr>
+          ${t.rows.map(r => `<tr><td>${esc(r.courseCode)} - ${esc(r.courseTitle)}</td><td>${r.credits}</td><td>${esc(r.grade)}</td><td>${r.points.toFixed(1)}</td></tr>`).join('')}</table>
+          <div class="stat">Total credits: <b>${t.totalCredits}</b> &nbsp; GPA: <b>${t.gpa.toFixed(2)}</b></div>`;
+      } catch (e) { flash(e.message, false); }
+    };
+  }
+}
+const delStudent = id => confirm('Delete this student and their enrollments?') && run(() => api('DELETE', `/api/students/${id}`), 'Student deleted.');
+const delCourse  = id => confirm('Delete this course and its enrollments?') && run(() => api('DELETE', `/api/courses/${id}`), 'Course deleted.');
+const setGrade   = (id, g) => g && run(() => api('PUT', `/api/enrollments/${id}/grade`, { grade: g }));
+const drop       = id => run(() => api('DELETE', `/api/enrollments/${id}`), 'Enrollment dropped.');
+render();
+</script>
+</body>
+</html>
